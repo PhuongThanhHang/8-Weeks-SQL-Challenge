@@ -374,6 +374,7 @@ This suggests that the change in packaging truly had a negative impact on sales.
 ### D. Bonus Questions
 
 **Questions**
+
 Which areas of the business have the highest negative impact in sales metrics performance in 2020 for the 12 week before and after period?
 - region
 - platform
