@@ -1,4 +1,4 @@
-# Case Study #1 - Pizza Runner
+# Case Study #2 - Pizza Runner
 
 ---
 
@@ -219,4 +219,168 @@ ORDER BY days_of_week
 
 <img width="296" height="151" alt="image" src="https://github.com/user-attachments/assets/c76aaa8a-3b1e-4e69-804c-49a93b18c97b" />
 
+### B. Runner and Customer Experience
+
+**1. How many runners signed up for each 1 week period? (i.e. week starts 2021-01-01)**
+
+- Calculate the day difference between each registration_date and the start date 2021-01-01. Use `DATE_DIFF(end_date, start_date, DAY)`
+- Divide the day difference by 7. `Using DIV(days_from_start, 7)` to determine which week each record belongs to.
+- Add 1 and generate a week label to form a simple week reference table for reporting and analysis.
+
+```sql
+WITH week_reference AS (
+  SELECT
+    registration_date,
+    DATE_DIFF(registration_date, '2021-01-01', DAY) AS days_from_Jan1,
+    DIV (DATE_DIFF(registration_date, '2021-01-01', DAY), 7) AS week_index_zero,
+    1 + DIV (DATE_DIFF(registration_date, '2021-01-01', DAY), 7) AS week_number
+  FROM `weeksqlchallenge-474608.2pizzarunner.runners`
+)
+
+SELECT
+  w.week_number,
+  COUNT (runner_id) as signed_up_number
+FROM `weeksqlchallenge-474608.2pizzarunner.runners` as r
+JOIN week_reference as w
+ON r.registration_date = w.registration_date
+GROUP BY w.week_number
+ORDER BY w.week_number
+```
+
+**Answer**:
+
+<img width="277" height="120" alt="image" src="https://github.com/user-attachments/assets/95f18850-552b-4959-9d4b-8da466f1d60c" />
+
+**2. What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?**
+
+- Initially, I did it this way. **But this approach is incorrect** because after join, each pizza creates a separate row, orders with multiple pizzas get counted multiple times.
+```sql
+SELECT
+  r.runner_id,
+  ROUND (AVG(TIMESTAMP_DIFF (r.pickup_time,c.order_time,MINUTE)),2) AS difference
+FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` AS c
+JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` AS r
+ON c.order_id = r.order_id
+WHERE cancellation = 'Successful'
+GROUP BY r.runner_id
+```
+
+- Then, I switched to this approach. In the CTE, you apply `GROUP BY r.order_id, r.runner_id, r.pickup_time, c.order_time`, which means any rows sharing the same order_id, pickup_time, and order_time will be aggregated into a single row. This means you calculate the time for each order only once, and then compute `AVG(time_dif) by runner_id`. So the average is based on orders, not duplicated by the number of pizzas.
+
+```sql
+WITH cte AS (
+  SELECT
+    r.order_id,
+    r.runner_id,
+    TIMESTAMP_DIFF (r.pickup_time, c.order_time, MINUTE) as time_difference
+  FROM `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+  JOIN `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c
+  ON r.order_id = c.order_id
+  WHERE cancellation = 'Successful'
+  GROUP BY r.order_id,r.runner_id, c.order_time, r.pickup_time
+  ORDER BY r.order_id,r.runner_id
+)
+
+SELECT
+  runner_id,
+  ROUND (AVG (time_difference),2) as avg_time
+FROM cte
+GROUP BY runner_id
+ORDER BY runner_id
+```
+
+**Answer**:
+
+<img width="277" height="120" alt="image" src="https://github.com/user-attachments/assets/db4c1c45-33e8-448c-898f-6cc02a45019b" />
+
+**3. Is there any relationship between the number of pizzas and how long the order takes to prepare?**
+```sql
+WITH cte AS (
+  SELECT
+    r.order_id,
+    COUNT (c.pizza_id) as number_of_pizza,
+    TIMESTAMP_DIFF (r.pickup_time, c.order_time, MINUTE) as time_difference
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c
+  JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+  ON c.order_id = r.order_id
+  WHERE cancellation = 'Successful'
+  GROUP BY r.order_id, c.order_time, r.pickup_time
+  ORDER BY r.order_id
+)
+
+SELECT
+  number_of_pizza,
+  ROUND (AVG (time_difference),2) as avg_prepare_time
+FROM cte
+GROUP BY number_of_pizza
+ORDER BY number_of_pizza
+```
+
+**Answer**: The more pizzas there are, the longer they will take to prepare.
+
+<img width="277" height="120" alt="image" src="https://github.com/user-attachments/assets/3f95e9e0-aa61-4782-8457-0b52fb104bb0" />
+
+**4. What was the average distance travelled for each customer?**
+```sql
+SELECT
+  c.customer_id,
+  ROUND (AVG (r.distance),2) as avg_distance
+FROM `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+JOIN `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c  
+ON r.order_id = c.order_id
+WHERE cancellation = 'Successful'
+GROUP BY c.customer_id
+ORDER BY c.customer_id
+```
+
+**Answer**:
+
+<img width="278" height="178" alt="image" src="https://github.com/user-attachments/assets/cf07f87b-512f-4a8d-8f4a-f436fbd5e68e" />
+
+**5. What was the difference between the longest and shortest delivery times for all orders?**
+```sql
+SELECT
+  MIN (duration) as min_duration,
+  MAX (duration) as max_duration,
+  MAX (duration) - MIN (duration) as difference
+FROM `weeksqlchallenge-474608.2pizzarunner.runner_orders_new`
+WHERE cancellation = 'Successful'
+```
+
+**Answer**:
+
+<img width="366" height="63" alt="image" src="https://github.com/user-attachments/assets/0fede9f2-72db-4e34-8d40-b50021041ed5" />
+
+**6. What was the average speed for each runner for each delivery and do you notice any trend for these values?**
+```sql
+SELECT
+  runner_id,
+  order_id,
+  distance,
+  ROUND (duration/60,2) as duration_hour,
+  ROUND (distance / (duration/60),2) as speed
+FROM `weeksqlchallenge-474608.2pizzarunner.runner_orders_new`
+WHERE cancellation = 'Successful' 
+GROUP BY order_id, runner_id, distance, duration
+ORDER BY runner_id,order_id
+```
+
+**Answer**: The running speed of each runner increases progressively with each subsequent delivery.
+
+<img width="516" height="267" alt="image" src="https://github.com/user-attachments/assets/be145589-472c-4576-b812-562913ce3580" />
+
+**7. What is the successful delivery percentage for each runner?**
+
+```sql
+SELECT 
+  runner_id,
+  SUM(CASE WHEN cancellation = 'Successful' THEN 1 ELSE 0 END) / COUNT(*) * 100 AS successful_delivery_percentage
+FROM `weeksqlchallenge-474608.2pizzarunner.runner_orders_new`
+GROUP BY runner_id
+ORDER BY successful_delivery_percentage
+```
+
+**Answer**:
+
+<img width="321" height="122" alt="image" src="https://github.com/user-attachments/assets/c7ea56a6-2e34-49bd-9ec3-9074616327fa" />
 
