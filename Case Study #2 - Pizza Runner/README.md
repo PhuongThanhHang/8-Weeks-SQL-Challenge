@@ -384,3 +384,127 @@ ORDER BY successful_delivery_percentage
 
 <img width="321" height="122" alt="image" src="https://github.com/user-attachments/assets/c7ea56a6-2e34-49bd-9ec3-9074616327fa" />
 
+### C. Ingredient Optimisation
+
+**1. What are the standard ingredients for each pizza?**
+
+First, I create cte1 to split toppings in a string into separate rows using the following steps:
+- Use SPLIT(toppings, ',') to convert the string into an array
+- Apply UNNEST(...) to expand the array into multiple rows
+- Use TRIM() to remove extra spaces and CAST(... AS INT64) to convert the text values into integers
+
+Then, I join the pizza_toppings table with cte1 to retrieve the topping_name for each pizza_id.
+
+Finally, because the pizza_id and topping_name table is too long to read, I combine all topping_name values for each pizza_id into a single string to make it easier to read.
+
+```sql
+WITH cte1 AS (
+  SELECT
+    pizza_id,
+    CAST (TRIM (toppings) AS INT64) as topping_id
+  FROM `weeksqlchallenge-474608.2pizzarunner.pizza_recipes`,
+  UNNEST (SPLIT (toppings, ',')) AS toppings
+),
+
+cte2 AS (
+  SELECT
+    c.pizza_id,
+    p.topping_name
+  FROM cte1 as c
+  JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_toppings` as p
+  ON c.topping_id = p.topping_id
+)
+
+SELECT
+  pizza_id,
+  STRING_AGG(topping_name, ', ') as standard_toppings
+FROM cte2
+GROUP BY pizza_id
+ORDER BY pizza_id
+```
+
+**Answer**:
+
+<img width="581" height="86" alt="image" src="https://github.com/user-attachments/assets/da6a61fb-8072-4021-9640-9cd25d5f773d" />
+
+**2. What was the most commonly added extra?**
+
+- First, create cte1 to split the strings in the extras column into separate rows by using `SPLIT (colume_name, ',')` và `UNNEST () AS`
+- Then join cte1 with the pizza_toppings table to retrieve the corresponding topping_name.
+- Finally, calculate the total number of times each topping was added.
+
+```sql
+WITH cte1 AS (
+  SELECT
+    order_id,
+    pizza_id,
+    CAST (TRIM (extras) AS INT64) AS extras
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new`,
+  UNNEST (SPLIT (extras, ',')) as extras
+)
+
+SELECT
+ p.topping_name,
+ COUNT (extras) as number
+FROM cte1 as c
+JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_toppings` as p
+ON c.extras = p.topping_id
+WHERE extras != 0
+GROUP BY p.topping_name
+ORDER BY number DESC
+```
+
+**Answer**: The most commonly added extra is Bacon.
+
+<img width="360" height="115" alt="image" src="https://github.com/user-attachments/assets/a84f079e-f43f-4f65-9f81-e6894fcb981f" />
+
+**3. What was the most common exclusion?**
+```sql
+WITH cte1 AS (
+  SELECT
+    order_id,
+    pizza_id,
+    CAST (TRIM (exclusions) AS INT64) AS exclusions
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new`,
+  UNNEST (SPLIT (exclusions, ',')) as exclusions
+)
+
+SELECT
+ p.topping_name,
+ COUNT (exclusions) as number
+FROM cte1 as c
+JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_toppings` as p
+ON c.exclusions = p.topping_id
+WHERE exclusions != 0
+GROUP BY p.topping_name
+ORDER BY number DESC
+```
+
+**Answer**: The most common exclusion is Cheese.
+
+<img width="273" height="118" alt="image" src="https://github.com/user-attachments/assets/566974da-19c3-4d4b-8677-61c545e2cdf1" />
+
+**4. Generate an order item for each record in the customers_orders table in the format of one of the following: Meat Lovers, Meat Lovers - Exclude Beef, Meat Lovers - Extra Bacon, Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers**
+```sql
+
+```
+
+**Answer**:
+
+
+**5. Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients. For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"**
+```sql
+
+```
+
+**Answer**:
+
+
+**6. What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?**
+```sql
+
+```
+
+**Answer**:
+
+
