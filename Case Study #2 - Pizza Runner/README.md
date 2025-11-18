@@ -519,51 +519,34 @@ WITH delivered_pizzas AS (
   WHERE cancellation = 'Successful'
 ), 
 
-cte1 AS (
-SELECT 
-  pizza_id,
-  CAST (TRIM (toppings) AS INT64) as topping_id
-FROM delivered_pizzas,
-UNNEST (SPLIT (toppings, ',')) AS toppings
-),
-
 standard_toppings AS (
-SELECT 
-  topping_id,
-  COUNT (topping_id) as standard_count
-FROM cte1
-GROUP BY topping_id
-ORDER BY topping_id
-),
-
-cte2 AS (
-SELECT 
-  CAST (TRIM (exclusions) AS INT64) as exclusions
+SELECT
+  CAST(TRIM(toppings) AS INT64) AS topping_id,
+  COUNT(*) AS standard_count
 FROM delivered_pizzas,
-UNNEST (SPLIT (exclusions, ',')) AS exclusions
+UNNEST(SPLIT(toppings, ',')) AS toppings
+WHERE TRIM(toppings) != '0'
+GROUP BY topping_id
 ),
 
 exclusions AS (
-SELECT
-  exclusions as topping_id,
-  COUNT (exclusions) as exclusions_count
-FROM cte2
-GROUP BY exclusions
-),
-
-cte3 AS (
 SELECT 
-  CAST (TRIM (extras) AS INT64) as extras
+  CAST (TRIM (exclusions) AS INT64) as topping_id,
+  COUNT (*) as exclusions_count
 FROM delivered_pizzas,
-UNNEST (SPLIT (extras, ',')) AS extras
+UNNEST (SPLIT (exclusions, ',')) AS exclusions
+WHERE TRIM (exclusions) != '0'
+GROUP BY topping_id
 ),
 
 extras AS (
-SELECT
-  extras as topping_id,
-  COUNT (extras) as extras_count
-FROM cte3
-GROUP BY extras
+SELECT 
+  CAST (TRIM (extras) AS INT64) as topping_id,
+  COUNT (*) as extras_count
+FROM delivered_pizzas,
+UNNEST (SPLIT (extras, ',')) AS extras
+WHERE TRIM (extras) != '0'
+GROUP BY topping_id
 ),
 
 join_table AS (
@@ -616,31 +599,31 @@ WITH delivered_pizzas AS (
 topping_events AS (
   -- standard toppings: +1
   SELECT 
-    CAST(TRIM(t) AS INT64) AS topping_id,
+    CAST(TRIM(toppings) AS INT64) AS topping_id,
     1 AS delta
   FROM delivered_pizzas,
-  UNNEST(SPLIT(toppings, ',')) AS t
-  WHERE TRIM(t) != '0'
+  UNNEST(SPLIT(toppings, ',')) AS toppings
+  WHERE TRIM(toppings) != '0'
 
   UNION ALL
 
   -- extras: +1
   SELECT 
-    CAST(TRIM(e) AS INT64) AS topping_id,
+    CAST(TRIM(extras) AS INT64) AS topping_id,
     1 AS delta
   FROM delivered_pizzas,
-  UNNEST(SPLIT(extras, ',')) AS e
-  WHERE TRIM(e) != '0'
+  UNNEST(SPLIT(extras, ',')) AS extras
+  WHERE TRIM(extras) != '0'
 
   UNION ALL
 
   -- exclusions: -1
   SELECT 
-    CAST(TRIM(x) AS INT64) AS topping_id,
+    CAST(TRIM(exclusions) AS INT64) AS topping_id,
     -1 AS delta
   FROM delivered_pizzas,
-  UNNEST(SPLIT(exclusions, ',')) AS x
-  WHERE TRIM(x) != '0'
+  UNNEST(SPLIT(exclusions, ',')) AS exclusions
+  WHERE TRIM(exclusions) != '0'
 )
 
 SELECT
