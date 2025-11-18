@@ -652,7 +652,9 @@ ON t.topping_id = p.topping_id
 GROUP BY topping_name
 ORDER BY total_quantity DESC
 ```
-**Answer**:
+**Answer**: Bacon, mushroom, and cheese are the three most frequently used toppings.
+
+<img width="428" height="387" alt="image" src="https://github.com/user-attachments/assets/28df27e2-85da-4843-9258-cb9a5ff82be7" />
 
 ### D. Pricing and Ratings
 
@@ -737,6 +739,8 @@ VALUES
 ```
 **Answer**:
 
+<img width="276" height="268" alt="image" src="https://github.com/user-attachments/assets/9781603f-190b-461d-a0fc-d0f76f52c45e" />
+
 **4. Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?**
 
 ```sql
@@ -762,9 +766,54 @@ ORDER BY a.customer_id,a.order_id,b.runner_id
 ```
 **Answer**:
 
+<img width="1158" height="269" alt="image" src="https://github.com/user-attachments/assets/abe902fe-4cb2-4330-9263-f6cc080c98cf" />
+
 **5. If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled - how much money does Pizza Runner have left over after these deliveries?**
 
 ```sql
+WITH deliverd_pizzas AS (
+SELECT 
+  c.order_id,
+  SUM (CASE WHEN pizza_id = 1 THEN 12
+       WHEN pizza_id = 2 THEN 10
+       END) AS total_price,
+  distance,
+  distance * 0.3 AS delivery_cost
+FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c
+JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+ON c.order_id = r.order_id
+WHERE cancellation = 'Successful'
+GROUP BY c.order_id, distance
+ORDER BY c.order_id
+)
 
+SELECT 
+  SUM (total_price) as total_price,
+  SUM (delivery_cost) as total_delivery_cost,
+  SUM (total_price) - SUM (delivery_cost) as remaining_amount
+FROM deliverd_pizzas
 ```
 **Answer**:
+
+<img width="414" height="61" alt="image" src="https://github.com/user-attachments/assets/30b7bfce-274e-40a1-9d29-4b7e620bd178" />
+
+### E. Bonus Questions
+
+**Question**:
+
+If Danny wants to expand his range of pizzas - how would this impact the existing data design? Write an INSERT statement to demonstrate what would happen if a new Supreme pizza with all the toppings was added to the Pizza Runner menu?
+
+**Answer**:
+
+If Danny decides to expand the menu by adding a new pizza (for example, a Supreme pizza), the data design would be affected as follows:
+
+- `pizza_names` table and `pizza_recipes` table will change, because a new record must be inserted to represent the new pizza.
+- Tables like orders, customer_orders, runner_orders, pizza_toppings remain unchange. These tables are only affected when a customer actually places an order for the new pizza, at which point new rows will be inserted automatically through normal operations.
+- The current schema does not require any changes because it already supports menu expansion.
+
+```sql
+INSERT INTO pizza_runner.pizza_names (pizza_id, pizza_name)
+VALUES (3, 'Supreme');
+INSERT INTO pizza_runner.pizza_recipes (pizza_id, toppings)
+VALUES (3, '1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12');
+```
