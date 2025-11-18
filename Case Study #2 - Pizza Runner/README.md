@@ -484,27 +484,287 @@ ORDER BY number DESC
 
 <img width="273" height="118" alt="image" src="https://github.com/user-attachments/assets/566974da-19c3-4d4b-8677-61c545e2cdf1" />
 
-**4. Generate an order item for each record in the customers_orders table in the format of one of the following: Meat Lovers, Meat Lovers - Exclude Beef, Meat Lovers - Extra Bacon, Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers**
-```sql
-
-```
-
-**Answer**:
-
-
-**5. Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients. For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"**
-```sql
-
-```
-
-**Answer**:
-
-
 **6. What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?**
-```sql
 
+I solved this question using two methods, both based on the same idea. The second method is simply a more concise version of the first one.
+
+**Idea**: Create 3 tables 
+- Table 1 – Standard_toppings: this table calculates the total number of standard toppings used across all successfully delivered pizzas. It contains two columns: topping_id and standard_count.
+- Table 2 – Extras: this table calculates the total number of extra toppings added across all successfully delivered pizzas. It contains two columns: topping_id and extras_count.
+- Table 3 – Exclusions: this table calculates the total number of toppings removed across all successfully delivered pizzas. It contains two columns: topping_id and exclusions_count.
+- Next, perform a LEFT JOIN of Table 2 and Table 3 onto Table 1. This produces a consolidated table named JOIN_table, containing four columns: topping_id, standard_count, extras_count, and exclusions_count.
+- From the JOIN_table, calculate the actual number of toppings used across all pizzas using the formula:
+`standard_count + extras_count − exclusions_count`. This produces the final result table with two columns: topping_id and total_quantity.
+
+**Method 1**
+
+- First, extract a table containing the key information for all pizzas that were successfully delivered.
+- Create Table 1 – standard_toppings using two steps: Create cte1 to split the topping strings into separate rows. Then, generate Standard_toppings by applying COUNT and GROUP BY topping_id on the cte1 table.
+- Do the same for the Extras and Exclusions tables
+- Next, LEFT JOIN Extras and Exclusions tables onto standard_toppings. This produces a consolidated table named join_table, containing four columns: topping_id, standard_count, extras_count, and exclusions_count. 
+- From the join_table, using the formula: `standard_count + COALESCE(extras_count,0) - COALESCE(exclusions_count,0)`. Using `COALESCE(column_name, 0)` converts any NULL values in the column to 0, allowing BigQuery to perform calculations without errors.
+
+```sql
+WITH delivered_pizzas AS (
+  SELECT
+    c.pizza_id,
+    p.toppings,
+    c.exclusions,
+    c.extras
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c
+  JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+  ON c.order_id = r.order_id
+  JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_recipes` as p
+  ON c.pizza_id = p.pizza_id
+  WHERE cancellation = 'Successful'
+), 
+
+cte1 AS (
+SELECT 
+  pizza_id,
+  CAST (TRIM (toppings) AS INT64) as topping_id
+FROM delivered_pizzas,
+UNNEST (SPLIT (toppings, ',')) AS toppings
+),
+
+standard_toppings AS (
+SELECT 
+  topping_id,
+  COUNT (topping_id) as standard_count
+FROM cte1
+GROUP BY topping_id
+ORDER BY topping_id
+),
+
+cte2 AS (
+SELECT 
+  CAST (TRIM (exclusions) AS INT64) as exclusions
+FROM delivered_pizzas,
+UNNEST (SPLIT (exclusions, ',')) AS exclusions
+),
+
+exclusions AS (
+SELECT
+  exclusions as topping_id,
+  COUNT (exclusions) as exclusions_count
+FROM cte2
+GROUP BY exclusions
+),
+
+cte3 AS (
+SELECT 
+  CAST (TRIM (extras) AS INT64) as extras
+FROM delivered_pizzas,
+UNNEST (SPLIT (extras, ',')) AS extras
+),
+
+extras AS (
+SELECT
+  extras as topping_id,
+  COUNT (extras) as extras_count
+FROM cte3
+GROUP BY extras
+),
+
+join_table AS (
+SELECT
+  s.topping_id,
+  s.standard_count,
+  et.extras_count,
+  ec.exclusions_count
+FROM standard_toppings as s
+LEFT JOIN extras as et ON s.topping_id = et.topping_id
+LEFT JOIN exclusions as ec ON s.topping_id = ec.topping_id
+)
+
+SELECT 
+  p.topping_name,
+  standard_count + COALESCE(extras_count,0) - COALESCE(exclusions_count,0) AS total_quantity
+FROM join_table as j
+JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_toppings` as p
+ON j.topping_id = p.topping_id
+ORDER BY total_quantity DESC
 ```
 
 **Answer**:
 
+**Method 2**:
 
+- First, extract a table containing the key information for all pizzas that were successfully delivered (Same as in Method 1).
+- Instead of using six CTEs (cte1, standard_topping, cte2, extras, cte3, exclusions) and joining them, I create a single CTE called topping_event that works as follows:
+UNNEST the standard_toppings and assign a +1 flag
+UNNEST the extras and assign a +1 flag
+UNNEST the exclusions and assign a -1 flag
+To simplify the calculation of total toppings used in delivered pizzas, we convert each topping event into a unified form called delta, which represents how each row should adjust the total count.
+- Use `UNION ALL` to combine all these unnests into a single event row for each topping. Then, simply SUM(delta) grouped by topping_id to get the final result: standard + extras − exclusions in a single step.
+
+```sql
+WITH delivered_pizzas AS ( 
+  SELECT
+    c.pizza_id,
+    p.toppings,
+    c.exclusions,
+    c.extras
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` AS c
+  JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` AS r
+    ON c.order_id = r.order_id
+  JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_recipes` AS p
+    ON c.pizza_id = p.pizza_id
+  WHERE r.cancellation = 'Successful'
+),
+
+topping_events AS (
+  -- standard toppings: +1
+  SELECT 
+    CAST(TRIM(t) AS INT64) AS topping_id,
+    1 AS delta
+  FROM delivered_pizzas,
+  UNNEST(SPLIT(toppings, ',')) AS t
+  WHERE TRIM(t) != '0'
+
+  UNION ALL
+
+  -- extras: +1
+  SELECT 
+    CAST(TRIM(e) AS INT64) AS topping_id,
+    1 AS delta
+  FROM delivered_pizzas,
+  UNNEST(SPLIT(extras, ',')) AS e
+  WHERE TRIM(e) != '0'
+
+  UNION ALL
+
+  -- exclusions: -1
+  SELECT 
+    CAST(TRIM(x) AS INT64) AS topping_id,
+    -1 AS delta
+  FROM delivered_pizzas,
+  UNNEST(SPLIT(exclusions, ',')) AS x
+  WHERE TRIM(x) != '0'
+)
+
+SELECT
+ topping_name,
+ SUM (delta) as total_quantity
+FROM topping_events as t
+JOIN `weeksqlchallenge-474608.2pizzarunner.pizza_toppings` AS p
+ON t.topping_id = p.topping_id 
+GROUP BY topping_name
+ORDER BY total_quantity DESC
+```
+**Answer**:
+
+### D. Pricing and Ratings
+
+**1. If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?**
+
+```sql
+WITH cte AS (
+SELECT
+  pizza_id,
+  (CASE WHEN pizza_id = 1 then 12
+        WHEN pizza_id = 2 then 10
+        ELSE 0 END) AS price
+FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as c
+JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as r
+ON c.order_id = r.order_id
+WHERE cancellation = 'Successful'
+)
+SELECT
+  SUM (price) as total_revenue
+FROM cte
+```
+**Answer**: Pizza Runner has made 138 dollar
+
+<img width="108" height="49" alt="image" src="https://github.com/user-attachments/assets/4572eb4e-91e7-4387-900a-44c836299f07" />
+
+**2. What if there was an additional $1 charge for any pizza extras? Add cheese is $1 extra**
+
+```sql
+WITH delivered_pizzas AS (
+  SELECT
+    c.order_id,
+    c.pizza_id,
+    c.extras
+  FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` AS c
+  JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` AS r
+    ON c.order_id = r.order_id
+  WHERE r.cancellation = 'Successful'
+),
+extras_count AS (
+  SELECT 
+    order_id,
+    COUNT(*) AS extra_toppings
+  FROM delivered_pizzas,
+  UNNEST(SPLIT(extras, ',')) AS extras
+  WHERE TRIM(extras) != '0'
+  GROUP BY order_id
+)
+
+SELECT
+  SUM(
+    CASE 
+      WHEN pizza_id = 1 THEN 12   
+      WHEN pizza_id = 2 THEN 10   
+    END
+    + COALESCE(extra_toppings, 0) * 1 
+  ) AS total_revenue
+FROM delivered_pizzas as d
+LEFT JOIN extras_count as e
+ON d.order_id = e.order_id
+```
+**Answer**:
+
+<img width="106" height="46" alt="image" src="https://github.com/user-attachments/assets/4b0ebffb-1918-4727-bd63-a96703c730b1" />
+
+**3. The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.**
+
+```sql
+CREATE TABLE `weeksqlchallenge-474608.2pizzarunner.runner_ratings` (
+  order_id INT64,
+  rating INT64
+);
+INSERT INTO `weeksqlchallenge-474608.2pizzarunner.runner_ratings` (order_id, rating)
+VALUES
+  (1, 5),
+  (2, 4),
+  (3, 5),
+  (4, 3),
+  (5, 4),
+  (7, 5),
+  (8, 4),
+  (10, 3)
+```
+**Answer**:
+
+**4. Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?**
+
+```sql
+SELECT
+  a.customer_id,
+  a.order_id,
+  b.runner_id,
+  c.rating,
+  a.order_time,
+  b.pickup_time,
+  TIMESTAMP_DIFF(b.pickup_time, a.order_time, MINUTE) as time_between_order_and_pickup,
+  b.duration,
+  ROUND(b.distance/(b.duration/60),2) as average_speed,
+  COUNT (a.pizza_id) as total_pizza
+FROM `weeksqlchallenge-474608.2pizzarunner.customer_orders_new` as a
+JOIN `weeksqlchallenge-474608.2pizzarunner.runner_orders_new` as b
+ON a.order_id = b.order_id
+JOIN `weeksqlchallenge-474608.2pizzarunner.runner_ratings` as c
+ON a.order_id = c.order_id
+WHERE cancellation = 'Successful'
+GROUP BY a.customer_id,a.order_id,b.runner_id,c.rating,a.order_time,b.pickup_time, b.duration, b.distance
+ORDER BY a.customer_id,a.order_id,b.runner_id
+```
+**Answer**:
+
+**5. If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled - how much money does Pizza Runner have left over after these deliveries?**
+
+```sql
+
+```
+**Answer**:
