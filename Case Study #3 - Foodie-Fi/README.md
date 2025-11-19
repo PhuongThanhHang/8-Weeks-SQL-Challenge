@@ -308,11 +308,35 @@ ORDER BY periods
 <img width="288" height="212" alt="image" src="https://github.com/user-attachments/assets/c47fa700-9bee-4774-8a65-64f0b3c946ef" />
 
 **11. How many customers downgraded from a pro monthly to a basic monthly plan in 2020?**
-```sql
 
+To solve this question, I used `LEAD (colume_name) OVER (PARTITION BY ORDER BY)`
+- The LEAD() function in BigQuery is a window function used to access data from the next row within the same result set, based on a specified ordering.
+- This function is very useful for tasks such as tracking upgrades or downgrades (like in the Foodie-Fi case), calculating the time between purchases, and finding the amount of the next transaction.
+
+```sql
+WITH plans AS (
+  SELECT
+    customer_id,
+    plan_id,
+    start_date,
+    LEAD (plan_id) OVER (PARTITION BY customer_id ORDER BY start_date) as next_plan_id,
+    LEAD (start_date) OVER (PARTITION BY customer_id ORDER BY start_date) as next_plan_start_date
+  FROM `weeksqlchallenge-474608.3foodiefi.subscriptions`
+),
+downgraded AS (
+SELECT *
+FROM plans
+WHERE plan_id = 2 and next_plan_id = 1
+)
+
+SELECT
+  COUNT (DISTINCT customer_id) as total_downgrade
+FROM downgraded
 ```
 
-**Answer**:
+**Answer**: In 2020, no customers switched from a Pro Monthly plan down to a Basic Monthly plan.
+
+<img width="140" height="63" alt="image" src="https://github.com/user-attachments/assets/12e04ad8-86ec-4115-bf19-2040ac833602" />
 
 ### C. Challenge Payment Question
 
