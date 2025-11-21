@@ -311,5 +311,60 @@ FROM percentage
 
 ### C. Data Allocation Challenge
 
+**Options 1: data is allocated based off the amount of money at the end of the previous month**
+
+This means that the previous month’s closing_amount determines how many GB customers receive in the current month. However, if a month ends with a negative closing_amount due to spending exceeding deposits, then customers will receive 0 GB in the following month.
+
+I will approach the solution using the following steps:
+
+- Step 1: Create the `monthly_amount` CTE to calculate each customer’s net monthly amount (deposits minus spending).
+- Step 2: Create the `closing_balance` CTE to compute the cumulative closing balance for each customer from the start up to each month.
+- Step 3: Create the `allocation_plan` CTE to determine the data assigned for the following month, based on the rule that the current month’s closing balance becomes next month’s data allocation; if the closing balance is negative, next month’s allocation is 0 GB.
+- Step 4: Calculate the total data provisioning required per month under Option 1.
+
+```sql
+WITH monthly_amount AS (
+  SELECT
+    customer_id,
+    DATE_TRUNC(txn_date, MONTH) AS month,
+    SUM(CASE 
+        WHEN txn_type = 'deposit' THEN txn_amount
+        ELSE -1 * txn_amount
+      END) AS total_amount
+  FROM `weeksqlchallenge-474608.4databank.customer_transactions`
+  GROUP BY customer_id, month
+),
+
+closing_balance AS (
+  SELECT
+    customer_id,
+    month,
+    total_amount,
+    SUM(total_amount) OVER (PARTITION BY customer_id ORDER BY month
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS closing_amount
+  FROM monthly_amount
+),
+
+allocation_plan AS (
+  SELECT
+    customer_id,
+    DATE_ADD(month, INTERVAL 1 MONTH) AS allocation_month,
+    GREATEST(closing_amount, 0) AS data_amount  
+  FROM closing_balance
+)
+
+SELECT
+  allocation_month AS month,
+  SUM(data_amount) AS total_data
+FROM allocation_plan
+GROUP BY month
+ORDER BY month
+```
+**Answer**: From February to April, the amount of data that needed to be allocated rose from 235,595 GB to 238,492 GB and then to 240,065 GB, as deposits exceeded spending in each of those months. In contrast, May recorded the lowest allocation volume at 157,033 GB because customers spent more than they deposited.
+
+**Options 2: data is allocated on the average amount of money kept in the account in the previous 30 days**
+
+```sql
+```
 ### D. Extra Challenge
 
