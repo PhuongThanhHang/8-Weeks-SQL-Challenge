@@ -340,5 +340,103 @@ FROM downgraded
 
 ### C. Challenge Payment Question
 
-### D. Outside The Box Questions
+- Attach pricing and plan names, and generate the next_start_date column using
+`LEAD() OVER (PARTITION BY customer_id ORDER BY start_date)`.
+
+- Define each plan’s effective period using `valid_from = start_date` and
+valid_to derived with `COALESCE(next_start_date, end_of_data_range)`.
+
+- Restrict the active period to the 2020 calendar year by applying `GREATEST` and `LEAST` to clamp the date boundaries.
+
+- Generate monthly payments for basic monthly and pro monthly plans using
+`UNNEST(GENERATE_DATE_ARRAY(period_start, period_end, INTERVAL 1 MONTH))`.
+
+- Generate annual payments for pro annual plans by charging once at the start_date.
+
+- Combine all payments (excluding churn records since price is NULL and therefore filtered out upstream).
+
+- Produce the final output as the payments_2020 table.
+
+```sql
+CREATE TABLE `weeksqlchallenge-474608.3foodiefi.payments_2020` AS
+
+WITH sub_with_price AS (
+  SELECT
+    s.customer_id,
+    s.plan_id,
+    p.plan_name,
+    p.price,
+    s.start_date,
+    LEAD(s.start_date) OVER (PARTITION BY s.customer_id ORDER BY s.start_date) AS next_start_date
+  FROM `weeksqlchallenge-474608.3foodiefi.subscriptions` AS s
+  JOIN `weeksqlchallenge-474608.3foodiefi.plans` AS p
+  On s.plan_id = p.plan_id
+),
+
+plan_periods AS (
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    price,
+    start_date AS valid_from,
+    COALESCE(
+      DATE_SUB(next_start_date, INTERVAL 1 DAY),
+      DATE '2020-12-31') AS valid_to
+  FROM sub_with_price
+),
+
+periods_2020 AS (
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    price,
+    GREATEST(valid_from, DATE '2020-01-01') AS period_start,
+    LEAST(valid_to, DATE '2020-12-31') AS period_end
+  FROM plan_periods
+  WHERE valid_from <= DATE '2020-12-31' AND valid_to >= DATE '2020-01-01'
+),
+
+monthly_payments AS (
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    price AS amount,
+    payment_date
+  FROM periods_2020,
+  UNNEST(GENERATE_DATE_ARRAY(period_start,period_end, INTERVAL 1 MONTH)) AS payment_date
+  WHERE plan_name IN ('basic monthly', 'pro monthly')
+),
+
+annual_payments AS (
+  SELECT
+    customer_id,
+    plan_id,
+    plan_name,
+    price AS amount,
+    period_start AS payment_date
+  FROM periods_2020
+  WHERE plan_name = 'pro annual'
+),
+
+all_payments AS (
+  SELECT * FROM monthly_payments
+  UNION ALL
+  SELECT * FROM annual_payments
+)
+
+SELECT
+  customer_id,
+  plan_id,
+  plan_name,
+  payment_date,
+  amount
+FROM all_payments
+ORDER BY customer_id, payment_date;
+```
+**Answer**:
+
+<img width="664" height="327" alt="image" src="https://github.com/user-attachments/assets/d3a54552-0fe5-477f-a349-f0b57841fbc7" />
 
